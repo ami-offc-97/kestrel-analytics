@@ -1,0 +1,9 @@
+warehouse_code,warehouse_name,city,region_name,timezone,chilled_capacity_pallets
+WH01,Bhiwandi DC,Mumbai,West,Asia/Kolkata,420
+WH02,Chakan DC,Pune,West,Asia/Kolkata,260
+WH03,Hoskote DC,Bengaluru,South,Asia/Kolkata,780
+WH04,Sriperumbudur DC,Chennai,South,Asia/Kolkata,350
+WH05,Bhiwadi DC,Delhi,North,Asia/Kolkata,610
+WH06,Dankuni DC,Kolkata,East,Asia/Kolkata,190
+WH07,Hyderabad DC,Hyderabad,South,Asia/Kolkata,300
+WH08,Butibori DC,Nagpur,Central,Asia/Kolkata,150

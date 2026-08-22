@@ -1,0 +1,6 @@
+carrier_id,carrier_name,mode,sla_hours,rate_per_km
+CR-101,Bluewheel Logistics,SURFACE,24,38.5
+CR-102,Trident Roadways,SURFACE,36,31.0
+CR-103,ColdLink Express,REEFER,18,52.75
+CR-104,Eastbound Freight,SURFACE,48,27.4
+CR-105,Metro Milkrun,LCV,12,44.2

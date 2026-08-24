@@ -105,3 +105,15 @@
   the generator's logic) represent genuine change signals. KPIs must use the latest
   non-deleted version for "current" order/product value, not a historical version
   or an average across versions.
+
+- **dim_outlet/dim_product deletion semantics - "ever deleted" not "latest op_type"**:
+  both dims use `MAX(op_type = 'D') OVER (PARTITION BY <key>)` to derive `is_deleted`,
+  rather than checking whether the latest version's op_type is 'D'. Verified this
+  matters on both entities independently, not assumed from the outlet finding:
+  33 of 48 deleted outlets and 10 of 16 deleted SKUs have a genuine later "U" row
+  chronologically following their "D" row, because delete tombstones are sampled on
+  a timestamp independent of the entity's own scheduled updates. Using "latest
+  op_type" would have incorrectly reactivated these 33 outlets / 10 SKUs as
+  `is_current = true`. Tested directly in each dim's diagnostic script (query:
+  count of `is_current = true` rows whose key ever appears with op_type = 'D';
+  expected and confirmed 0 in both cases) rather than inferred from row counts alone.

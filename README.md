@@ -31,7 +31,7 @@ python3 scripts/ask.py "gross sales by channel last quarter"
 ```
 
 Step 2 takes a few minutes and writes ~1.5 GB. Step 3 builds 20 models in
-about 15 seconds on a laptop. Nothing else is required — no cluster, no
+one pass. Nothing else is required — no cluster, no
 services, no configuration file.
 
 The dataset is regenerated rather than committed, per the assignment brief.

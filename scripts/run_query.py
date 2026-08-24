@@ -45,7 +45,7 @@ def list_library() -> int:
             title = ""
             for line in q.read_text().splitlines():
                 s = line.strip()
-                if s.startswith("--") and not set(s) <= set("- "):
+                if s.startswith("--") and not set(s) <= set("-= "):
                     title = s.lstrip("- ").strip()
                     break
             print(f"    {q.relative_to(REPO_ROOT)}")

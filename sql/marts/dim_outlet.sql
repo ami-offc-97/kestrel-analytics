@@ -12,6 +12,24 @@
 -- so a genuine later "U" row can chronologically follow a "D" row (verified:
 -- 33 of 48 deleted outlets have this pattern). Treating deletion as
 -- reversible-by-later-update would incorrectly reactivate these outlets.
+--
+-- CAUTION (verified against real data, not just the generator): of this dim's
+-- versioned attributes, only warehouse_code, gst_number, and outlet_name are
+-- genuinely stable/meaningful across an outlet's history. channel,
+-- outlet_format, city, route_code, credit_limit, and credit_terms_days are
+-- independently re-randomized on EVERY CDC update with no business logic
+-- behind them (confirmed in generator: outlet_cols() draws these fields from
+-- rng.choice() unconditionally on every call). Empirically, outlets with
+-- multiple versions average 2.5-3.8 distinct values across these six fields
+-- with no discernible pattern (e.g. OUT001011 cycles GT->GT->GT->MT->MT->GT->
+-- ECOM->ECOM->GT->MT->GT->ECOM across 12 versions). Do NOT interpret point-
+-- in-time differences in these six fields as genuine outlet reclassification
+-- events - the windowing here is still the mechanically correct way to store
+-- what the CDC stream says, but the underlying values it's storing are noise
+-- for these fields. See DECISIONS.md. The one exception: version_no = 1's
+-- channel value IS the real, generation-time channel (it matches
+-- stg_pos_transactions.channel for 100% of that outlet's sales, verified) -
+-- only later versions' channel values are noise.
 -- =============================================================
 
 CREATE OR REPLACE TABLE dim_outlet AS

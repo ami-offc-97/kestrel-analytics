@@ -20,19 +20,6 @@
   Pipeline design decision: skip the specific corrupt file (not the whole
   partition/day) and log it, rather than failing the run.
 
-- **Cold chain excursion definition**: per 02_Feed_Contracts.md, target band is 2-8°C,
-  and an excursion is defined there as "any reading above the band" (i.e. >8°C only).
-  KPI catalogue follows this literal definition as `excursion_high`; readings below 2°C
-  are tracked separately as `excursion_low` since they may also be business-relevant,
-  but are not counted in the doc's stated excursion definition.
-
-- **Warehouse cycle time with incomplete stage coverage**: due to ~6.5% missing WMS
-  scans (known limitation, DEFECT L11), fct_warehouse_cycle_time retains one row per
-  journey with NULL for any missing stage timestamp, rather than dropping incomplete
-  journeys. Cycle-time metrics are computed only where both endpoint timestamps are
-  present; the KPI catalogue documents the resulting coverage percentage as a known
-  limitation.
-
 - **Star schema vs. flat reporting tables**: marts are built as a normalized
   fact/dimension star schema (single source of truth, no duplication). Flat,
   pre-joined reporting views are layered on top for analyst convenience, kept
@@ -117,3 +104,111 @@
   `is_current = true`. Tested directly in each dim's diagnostic script (query:
   count of `is_current = true` rows whose key ever appears with op_type = 'D';
   expected and confirmed 0 in both cases) rather than inferred from row counts alone.
+
+- **dim_outlet: most versioned attributes are regeneration noise, not genuine
+  history - likely the "at least one wrong statement" the brief warns about
+  in 02_Feed_Contracts.md**: `02_Feed_Contracts.md` states outlet_master
+  "attributes change over the life of an outlet," implying meaningful business
+  evolution. Verified against real data this is misleading for 6 of 9
+  attributes: `channel`, `outlet_format`, `city`, `route_code`,
+  `credit_limit`, and `credit_terms_days` are independently re-randomized on
+  every CDC update (confirmed in generator: `outlet_cols()` draws these
+  unconditionally from `rng.choice()`/`rng.uniform()` on every call, insert
+  or update alike). Outlets with multiple versions average 2.5-3.8 distinct
+  values across these six fields with no discernible pattern - e.g. OUT001011
+  cycles through GT/MT/ECOM/GT/MT/GT/ECOM channels and five different cities
+  across 12 versions with no logic. Only `warehouse_code` (fixed per outlet
+  by construction) and `gst_number` (deterministic on outlet index) are
+  genuinely stable; `outlet_name` is likewise constant. Practical
+  consequence: "which outlets changed channel classification, and when"
+  (brief section 5, Q6) CANNOT be answered from dim_outlet's channel history
+  as if it were real reclassification - doing so would report that the
+  large majority of outlets "changed channel," which is noise, not signal.
+  The one reliable channel value is version_no = 1 (the initial insert),
+  which matches stg_pos_transactions.channel for 100% of that outlet's sales
+  (verified: every POS row's channel appears somewhere in its outlet's own
+  channel history, and specifically the true, non-noisy value is the
+  outlet's original one, which POS also carries directly on every sale line).
+  Design decision: fct_sales carries `channel_at_sale` as a degenerate
+  dimension straight from stg_pos_transactions rather than joining
+  dim_outlet.channel, since the POS-native value is the reliable one for
+  sales-by-channel reporting. dim_outlet itself is left as-is (SCD2 windowing
+  is still the mechanically correct way to store whatever the CDC stream
+  says) but is annotated with this caution rather than silently trusted.
+
+- **fct_cold_chain_readings: carrier is genuinely unlinkable, and route_code/
+  warehouse_code on this feed are noise, not assignment - this is very likely
+  the "at least one wrong statement" 02_Feed_Contracts.md warns about, and
+  directly explains why "excursion rate by carrier" cannot be built as
+  Divya's brief literally asks**. Verified two separate things, both against
+  real data and the generator, not assumed:
+  (1) There is no carrier field or carrier-linking key anywhere in
+  `reefer_telemetry` - or in any other raw feed. `carrier_master.csv` /
+  `dim_carrier` is fully orphaned reference data: confirmed in
+  `generate_dataset.py` that `carrier_id` is written only once, into
+  `carrier_master.csv` itself, and referenced nowhere else in the generator.
+  No amount of staging logic can join it to a fact without fabricating a key,
+  so it isn't fabricated - this is documented as a known limitation instead.
+  (2) `route_code` and `warehouse_code`, which the feed contract describes as
+  "assignment at time of reading," are independently re-randomized on every
+  single reading with no tie to device or vehicle (confirmed in the
+  generator: both drawn via `rng.integers` per row, not per device). Verified
+  empirically: every one of the 340 vehicles sees readings against all 260
+  route_codes and all 8 warehouse_codes - avg 260.0 and 8.0 distinct values
+  per vehicle respectively, i.e. uniformly random, not a real assignment.
+  Only `device_id` -> `vehicle_registration` is genuinely stable (1:1,
+  verified 0 devices with more than one vehicle) - this is the one reliable
+  identity dimension on the feed. Practical consequence: `fct_cold_chain_readings`
+  carries `route_code`/`warehouse_code` through for traceability but with an
+  explicit caution in the header, and has no carrier column at all - "by
+  carrier" reporting is out of scope until/unless a real linking feed shows
+  up. This also plausibly explains Divya's "we think it's a third of all
+  trips, which cannot be right" comment: reading-level excursion rate is
+  actually 7.19%, not a third; a naive vehicle-day rollup (any excursion
+  reading that day marks the whole day breached) gives 75.07% - neither is
+  "a third," suggesting whatever ad-hoc number produced that estimate used a
+  different, uncontrolled definition. The mart is left at reading grain
+  deliberately (no fabricated "trip" concept, since nothing in the data
+  demarcates one) so the KPI layer can choose and document a rollup
+  explicitly rather than inheriting an implicit one.
+
+- **fct_cold_chain_readings: is_excursion follows the feed contract's literal
+  wording ("above the band" only) - readings below the 2-8C band are tracked
+  separately, not folded into the excursion flag**. `02_Feed_Contracts.md`
+  defines an excursion as "any reading above the band," not "outside the
+  band." Taken literally, a reading of -5C (too cold) is not an excursion
+  even though it's arguably a worse cold-chain failure for chilled product
+  than a reading of 9C. This is not a small edge case: 19.83% of non-missing
+  readings are below 2C, vs. 7.19% above 8C. Rather than silently picking
+  whichever reading felt right, `fct_cold_chain_readings` implements the
+  contract literally as `is_excursion` and adds `is_below_band` as a
+  separate, equally-visible flag - both NULL (not FALSE) when the reading
+  itself is missing (`temp_reading_missing`), so "no data" is never
+  conflated with "in band." Worth pinning down directly with Divya before
+  finalizing the KPI catalogue entry, the same way the FY26-Q4-vs-FY27-Q1
+  ambiguity was flagged for fct_sales rather than silently resolved.
+  Note: this supersedes the earlier placeholder decision that used
+  `excursion_high`/`excursion_low` naming - the actual built columns are
+  `is_excursion`/`is_below_band`, matching the boolean-flag convention used
+  elsewhere in the star schema (e.g. `dim_outlet.is_current`).
+
+- **fct_warehouse_cycle_time: wms_scan_events has no stitchable per-order
+  journey at all - supersedes the earlier "incomplete stage coverage"
+  placeholder, which wrongly assumed order-level stitching worked modulo
+  missing scans**: `order_number`, `sku_code`, `batch_id`, `pallet_id`, and
+  `warehouse_code` are each drawn from independent `rng.integers()` calls in
+  the generator - no shared key ties one item's scans together. Verified
+  three ways: RECEIVE->DISPATCH stitched by `order_number` gives a negative
+  duration (dispatch before receive) for 50.13% of eligible orders - a coin
+  flip, not a data-quality tail; the same ~50% negative rate holds keying by
+  `batch_id` (49.91%) and `pallet_id` (49.81%), ruling out "wrong key"; and
+  among the "plausible" (positive-duration) half, median implied cycle time
+  is ~155 days - absurd for a warehouse dock-to-dispatch cycle, confirming
+  that half is the same noise, not signal. 6-stage orders still touch ~8.6
+  distinct SKUs/batches on average, confirming scans aren't one item's
+  journey. Conclusion: brief Q5 ("median cycle time by warehouse") is not
+  answerable from this feed as generated - documented as a known limitation,
+  not worked around by filtering to the positive half.
+  `fct_warehouse_cycle_time` is still built at `order_number` grain (6 stage
+  timestamps pivoted, `cycle_time_seconds`/`is_cycle_time_plausible`
+  exposed) for transparency and diagnostic use.

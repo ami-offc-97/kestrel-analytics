@@ -51,7 +51,7 @@ CREATE OR REPLACE TABLE stg_sales_order_header AS
 WITH raw AS (
     SELECT *
     FROM read_parquet(
-        'data/raw/erp_cdc/sales_order_header/**/*.parquet',
+        getvariable('data_root') || '/raw/erp_cdc/sales_order_header/**/*.parquet',
         hive_partitioning = true
     )
 ),

@@ -68,5 +68,5 @@ SELECT
     p.source_file
 
 FROM stg_pos_transactions p
-LEFT JOIN read_csv('data/reference/uom_conversion.csv', header = true) u
+LEFT JOIN read_csv(getvariable('data_root') || '/reference/uom_conversion.csv', header = true) u
     ON p.sku_code = u.sku_code;

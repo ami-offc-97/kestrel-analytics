@@ -17,7 +17,7 @@ WITH raw AS (
     -- (ingest_date=YYYY-MM-DD), since the generator drops it from the file itself.
     SELECT *
     FROM read_parquet(
-        'data/raw/pos_transactions/**/*.parquet',
+        getvariable('data_root') || '/raw/pos_transactions/**/*.parquet',
         union_by_name = true,
         hive_partitioning = true
     )

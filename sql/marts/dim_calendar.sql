@@ -19,4 +19,4 @@ SELECT
     iso_week,
     day_of_week,
     CAST(is_weekend AS BOOLEAN) AS is_weekend
-FROM read_csv('data/reference/fiscal_calendar.csv', header = true);
+FROM read_csv(getvariable('data_root') || '/reference/fiscal_calendar.csv', header = true);

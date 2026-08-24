@@ -12,7 +12,7 @@ CREATE OR REPLACE TABLE stg_wms_scan_events AS
 WITH raw AS (
     SELECT *
     FROM read_parquet(
-        'data/raw/wms_scan_events/**/*.parquet',
+        getvariable('data_root') || '/raw/wms_scan_events/**/*.parquet',
         hive_partitioning = true
     )
 ),

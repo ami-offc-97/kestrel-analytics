@@ -23,7 +23,7 @@ CREATE OR REPLACE TABLE stg_product_history AS
 WITH raw AS (
     SELECT *
     FROM read_parquet(
-        'data/raw/erp_cdc/product_master/**/*.parquet',
+        getvariable('data_root') || '/raw/erp_cdc/product_master/**/*.parquet',
         hive_partitioning = true
     )
 ),

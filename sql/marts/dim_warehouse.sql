@@ -14,4 +14,4 @@ SELECT
     region_name,
     timezone,
     chilled_capacity_pallets
-FROM read_csv('data/reference/warehouse_master.csv', header = true);
+FROM read_csv(getvariable('data_root') || '/reference/warehouse_master.csv', header = true);

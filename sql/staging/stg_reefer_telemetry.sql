@@ -13,7 +13,7 @@ WITH raw AS (
     -- exclusion — the other 7 files for that same date are fine and must be kept).
     SELECT *, filename
     FROM read_parquet(
-        'data/raw/reefer_telemetry/**/*.parquet',
+        getvariable('data_root') || '/raw/reefer_telemetry/**/*.parquet',
         hive_partitioning = true,
         filename = true
     )

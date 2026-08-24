@@ -13,4 +13,4 @@ SELECT
     mode,
     sla_hours,
     rate_per_km
-FROM read_csv('data/reference/carrier_master.csv', header = true);
+FROM read_csv(getvariable('data_root') || '/reference/carrier_master.csv', header = true);

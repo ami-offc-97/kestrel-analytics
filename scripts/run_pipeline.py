@@ -63,13 +63,21 @@ LAYERS: dict[str, list[str]] = {
         "sql/marts/fct_cold_chain_readings.sql",
         "sql/marts/fct_warehouse_cycle_time.sql",
     ],
+    # Runs after marts because dq_feed_completeness and
+    # dq_telemetry_gateway_health need dim_calendar as a date spine, and
+    # the gateway model reads fct_cold_chain_readings.
+    "dq": [
+        "sql/dq/dq_partition_reconciliation.sql",
+        "sql/dq/dq_feed_completeness.sql",
+        "sql/dq/dq_telemetry_gateway_health.sql",
+    ],
     "reporting": [
         "sql/reporting/rpt_sales_flat.sql",
         "sql/reporting/rpt_finance_reconciliation.sql",
     ],
 }
 
-LAYER_ORDER = ["staging", "marts", "reporting"]
+LAYER_ORDER = ["staging", "marts", "dq", "reporting"]
 
 
 def object_name(sql_path: Path) -> str:

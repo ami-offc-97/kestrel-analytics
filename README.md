@@ -29,7 +29,7 @@ python3 scripts/run_pipeline.py
 python3 scripts/run_query.py sql/queries/sales/gross_sales_by_channel.sql
 ```
 
-Step 2 takes a few minutes and writes ~1.5 GB. Step 3 builds 17 models in
+Step 2 takes a few minutes and writes ~1.5 GB. Step 3 builds 20 models in
 about 15 seconds on a laptop. Nothing else is required — no cluster, no
 services, no configuration file.
 
@@ -54,7 +54,7 @@ incremental state to corrupt and nothing to clean up after a failure.
 |---|---|
 | `--data-root DIR` | Where `raw/` and `reference/` live. Default `data` |
 | `--db FILE` | Database to build into. Default `kestrel.duckdb` |
-| `--layer {staging,marts,reporting}` | Build one layer instead of all three |
+| `--layer {staging,marts,dq,reporting}` | Build one layer instead of all four |
 | `--threads N` | Cap DuckDB worker threads. Useful on a small machine at higher scale |
 | `--fail-fast` | Stop at the first failing model instead of continuing |
 
@@ -102,6 +102,7 @@ con.sql("SELECT * FROM rpt_sales_flat LIMIT 5").show()
 ├── sql/
 │   ├── staging/                   6 models — one per raw feed, cleaned and deduped
 │   ├── marts/                     9 models — star schema, 4 facts + 5 dimensions
+│   ├── dq/                        3 models — completeness at three grains
 │   ├── reporting/                 2 models — flat sales view, Finance reconciliation
 │   └── queries/                   The KPI query library, organised by domain
 ├── docs/
@@ -125,7 +126,7 @@ rationale stay in the same file, so neither can drift from the other.
 
 ## Architecture
 
-Medallion-style layered pipeline: raw → staging → marts → reporting.
+Medallion-style layered pipeline: raw → staging → marts → dq → reporting.
 
 ```mermaid
 flowchart TB
@@ -160,6 +161,12 @@ flowchart TB
         D5[dim_calendar]
     end
 
+    subgraph DQ["DATA QUALITY — is it safe to publish?"]
+        Q1[dq_partition_reconciliation]
+        Q2[dq_feed_completeness]
+        Q3[dq_telemetry_gateway_health]
+    end
+
     subgraph RPT["REPORTING — analyst-facing"]
         V1[rpt_sales_flat]
         V2[rpt_finance_reconciliation]
@@ -188,6 +195,14 @@ flowchart TB
     F2 --> V3
     F3 --> V3
     F4 --> V3
+    R1 -.manifest.-> Q1
+    R2 -.manifest.-> Q1
+    R3 -.manifest.-> Q1
+    D5 --> Q2
+    F2 --> Q3
+    Q1 --> V3
+    Q2 --> V3
+    Q3 --> V3
 ```
 
 `dim_carrier` is built and conformed but joins to no fact: there is no carrier
@@ -211,6 +226,11 @@ catalogue entry X-01.
 - **Metrics that cannot be built honestly are not built.** They are documented
   with evidence in the catalogue, and `sql/queries/limitations/` holds runnable
   proofs.
+- **Completeness is checked at three grains, not one.** Manifest reconciliation
+  catches short partitions, a calendar spine catches absent days, and
+  per-dimension baselines catch holes inside a feed that looks healthy in
+  total. Each catches a class of failure the other two structurally cannot
+  see.
 
 ---
 
@@ -235,6 +255,16 @@ Separately, readings *below* the band are 2.75× more common than readings above
 it (19.83% vs 7.19%), and the feed contract's definition of an excursion
 excludes them. That definition needs a decision from Operations.
 → `sql/queries/cold_chain/excursion_rate_by_month.sql`
+
+**A feed can be missing data and still look completely healthy.** The GW-017
+gateway outage sits at ~95% of feed-level daily volume — comfortably normal —
+because one dead gateway is 2.5% of telemetry. Feed-level monitoring never sees
+it; a per-gateway baseline isolates both days with zero false positives across
+21,294 gateway-days. Nor can feed-level thresholds be tuned to compensate: the
+truncated-file day lands at 85.0% of median while the quietest *ordinary* day on
+another feed is 85.9%. That is why completeness is checked at three grains
+rather than one.
+→ `sql/queries/data_quality/feed_completeness.sql`
 
 **Three of the brief's eight illustrative questions cannot be answered from
 these feeds.** Cycle time by warehouse, excursion rate by carrier, and outlet

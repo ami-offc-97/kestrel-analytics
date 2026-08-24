@@ -6,14 +6,15 @@ every metric is defined in [`docs/kpi_catalogue.md`](docs/kpi_catalogue.md).
 
 ## What I built
 
-A medallion pipeline in DuckDB — 17 models, runnable end to end on one command
+A medallion pipeline in DuckDB — 20 models, runnable end to end on one command
 (`python3 scripts/run_pipeline.py`), ~15s at scale 1. Six staging models (one
 per raw feed, deduped and defect-corrected), a nine-model star schema (4 facts,
-5 dimensions, outlet and product as SCD2), and a reporting layer: a flat sales
-view that encapsulates the point-in-time join, and a Finance reconciliation.
-On top, a KPI catalogue of 13 metrics and a query library of 11 parameterised
-queries, each cross-referenced to its catalogue entry so a number, its
-definition and its SQL are never more than one hop apart.
+5 dimensions, outlet and product as SCD2), three data-quality models, and a
+reporting layer: a flat sales view that encapsulates the point-in-time join,
+and a Finance reconciliation. On top, a KPI catalogue of 14 metrics and a query
+library of 12 parameterised queries, each cross-referenced to its catalogue
+entry so a number, its definition and its SQL are never more than one hop
+apart.
 
 I weighted the effort toward **being able to defend every number** rather than
 toward breadth. The dataset is adversarial by design, so most of the real work
@@ -33,10 +34,11 @@ was establishing which columns mean anything at all.
 - **Incremental processing.** Every run is a full rebuild — simple, correct,
   trivially idempotent, and the right trade at this scope. See "what breaks
   first".
-- **Feed-completeness reconciliation against the manifest.** Gateway-outage
-  detection is built for telemetry and isolates the GW-017 two-day outage with
-  no false positives, but the equivalent for POS, WMS and CDC is not. This is
-  the largest thing I would do next.
+- **Per-dimension completeness monitoring beyond telemetry gateways.** Feed
+  completeness now covers all six feeds at three grains, but the
+  spine-times-dimension check that actually finds holes inside a healthy feed
+  exists only for telemetry gateways. POS needs the same per till/outlet, WMS
+  per warehouse, before either could honestly be called monitored.
 - **The "ask-anything" interface.** The CFO asked for it. I judged a thin
   natural-language layer over a foundation I could not yet fully defend to be
   the wrong order of work. The query library is the honest version of it today:
@@ -86,13 +88,36 @@ was establishing which columns mean anything at all.
   unclamped — removing them would hide the finding — and built no KPI on them.
   The same formulas *are* sound on the POS feed, where discount and tax are
   genuinely derived.
+- **Completeness cannot be checked at one grain.** I built three models rather
+  than one because each catches a class of failure the others structurally
+  cannot see, and this dataset contains one example of each. The manifest is
+  the only thing that can prove a partition is *short* (it isolates the
+  truncated file at 85.9% of expected); a calendar spine is the only thing that
+  can see a day that was never written (the manifest is built by scanning what
+  *was* written, so an absent day reconciles clean on both sides); and a
+  per-gateway baseline is the only thing that finds the GW-017 outage, which
+  sits at ~95% of feed-level volume because one dead gateway is 2.5% of
+  telemetry. Nor could a feed-level threshold be tuned to cover the gap — the
+  truncated-file day is 85.0% of median and another feed's quietest *ordinary*
+  day is 85.9%.
+- **Both DQ detectors were retuned after their first version produced only
+  noise**, which I mention because the failure was mine and the lesson is the
+  transferable part. An 80% floor at gateway grain gave 74 alerts, all ordinary
+  variance (the 0.1st percentile of non-zero gateway-days is 77.2%). Relative
+  thresholds on the tiny CDC feeds gave 342 more — `product_master` runs a
+  median of 4 rows/day, where "25% of median" means one change instead of four.
+  Both now sit at zero false positives across 21,294 gateway-days and 3,276
+  feed-days. Feeds under 100 rows/day are explicitly marked unmonitorable
+  rather than monitored badly, and their zero-row days are reported as INFO,
+  because for a CDC feed "no rows" most likely means "nothing changed" — which
+  cannot be distinguished from a failed extract without a delivery receipt the
+  ERP does not send.
 
 ## What I would do next with two more weeks
 
-1. **Feed completeness across all four feeds**, reconciled against
-   `_manifest/expected_partitions.csv`, with volume-vs-baseline alerting.
-   Answers "which days are missing data, and how would we know without being
-   told" properly rather than for telemetry only.
+1. **Per-dimension completeness for POS and WMS** — the spine-times-dimension
+   pattern that found GW-017, applied per till/outlet and per warehouse. Feed
+   totals are demonstrably too coarse to catch a 2.5% hole.
 2. **Incremental builds** — partition-level insert-overwrite on
    `ingest_date`/`dt`, `MERGE INTO` on the CDC tables.
 3. **Tests as code.** The validation that produced every number in

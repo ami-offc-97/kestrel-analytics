@@ -42,6 +42,7 @@ installed by `pip install duckdb`. `run_query.py` is the supported path.
 | `finance/` | Reconciliation against the legacy weekly board report. KPI-08 |
 | `orders/` | Order value and source-system comparability. KPI-09, KPI-10 |
 | `cold_chain/` | Excursion rates and telemetry completeness. KPI-11 … KPI-13 |
+| `data_quality/` | Feed completeness. **Run this first, every day.** KPI-14 |
 | `limitations/` | **Proofs that a requested metric cannot be built.** See below |
 
 ## The `limitations/` directory
@@ -75,7 +76,17 @@ Run them before proposing a workaround for any of the three.
 | 5 | Median dock-to-dispatch cycle time by warehouse | **Not answerable** — `limitations/x02` |
 | 6 | Outlets that changed channel classification, and when | **Not answerable** — `limitations/x03` |
 | 7 | Order value by source system, and comparability | `orders/order_value_by_source_system.sql` |
-| 8 | Which days are missing data, in any feed | **Partial** — `cold_chain/telemetry_completeness.sql` finds gateway outages in telemetry (isolates the GW-017 two-day outage with no false positives). Manifest reconciliation across POS, WMS and CDC is not built; see `DECISIONS.md` |
+| 8 | Which days are missing data, in any feed | `data_quality/feed_completeness.sql` — manifest reconciliation across all feeds, absent-day detection on a calendar spine, and per-gateway hole detection |
 
-Three of eight resolve to "not answerable from these feeds", and one is
-partial. That is the honest count, and each is evidenced rather than asserted.
+Three of eight resolve to "not answerable from these feeds". Question 4 is
+answerable by month but not by carrier. That is the honest count, and each
+limitation is evidenced rather than asserted.
+
+## Start here each morning
+
+```bash
+python3 scripts/run_query.py sql/queries/data_quality/feed_completeness.sql
+```
+
+Section 5 gives a one-line verdict. If it does not say `CLEAN`, read sections
+1–4 before publishing any number from the other queries.

@@ -1,0 +1,275 @@
+{
+  "_about": [
+    "Intent registry for scripts/ask.py - the 'ask anything' layer.",
+    "",
+    "This is DATA, not code. Adding a question the tool understands means",
+    "adding an entry here; the router never changes. That is deliberate:",
+    "the set of answerable questions is reviewable in one file, and it is",
+    "obvious what the tool can and cannot do without reading Python.",
+    "",
+    "Matching is keyword-based and deliberately dumb. It cannot invent SQL,",
+    "so it cannot produce a number that nobody defined. When it does not",
+    "recognise a question it says so and lists what it does know, rather",
+    "than guessing. See DECISIONS.md for why that trade was chosen over an",
+    "LLM writing SQL against the schema.",
+    "",
+    "Fields:",
+    "  match     - all_of: every term must appear (or any synonym in a group)",
+    "              any_of: at least one term must appear",
+    "  query     - the library file to run. NOT written here; the SQL lives",
+    "              in the library and is shared with human users.",
+    "  kpi       - catalogue IDs this answers, for the citation line",
+    "  period    - which parameter names take the resolved date window",
+    "  blocked   - if present, the question is answerable-sounding but NOT",
+    "              answerable from these feeds. Returns the documented",
+    "              reason plus a runnable proof, never a number."
+  ],
+
+  "intents": [
+    {
+      "id": "gross_sales_by_channel",
+      "label": "Gross sales by channel",
+      "match": {
+        "all_of": [["sales", "revenue", "turnover", "gross"], ["channel", "gt", "mt", "horeca", "ecom", "trade"]]
+      },
+      "query": "sql/queries/sales/gross_sales_by_channel.sql",
+      "kpi": ["KPI-01", "KPI-07"],
+      "period": {"style": "fiscal_quarter", "params": ["fiscal_year", "fiscal_quarter"]}
+    },
+    {
+      "id": "sales_summary",
+      "label": "Sales summary (gross, net, tax, baskets)",
+      "match": {
+        "all_of": [["sales", "revenue", "turnover", "gross", "net", "basket"]]
+      },
+      "query": "sql/queries/sales/sales_summary.sql",
+      "kpi": ["KPI-01", "KPI-02", "KPI-03", "KPI-06"],
+      "period": {"style": "date_range", "params": ["date_from", "date_to"]},
+      "group_by_from_question": {
+        "month": ["month", "monthly", "by month"],
+        "fiscal_quarter": ["quarter", "quarterly"],
+        "channel": ["channel"],
+        "category": ["category", "categories"],
+        "region": ["region", "regional", "zone"]
+      }
+    },
+    {
+      "id": "units_in_eaches",
+      "label": "Units sold, converted to eaches",
+      "match": {
+        "all_of": [["unit", "units", "volume", "quantity", "qty"], ["each", "eaches", "ea"]]
+      },
+      "query": "sql/queries/sales/units_sold_in_eaches.sql",
+      "kpi": ["KPI-05"],
+      "period": {"style": "date_range", "params": ["date_from", "date_to"]},
+      "caveat": "Coverage is ~49.6% of lines - half the history predates the schema change and carries no unit of measure. The query reports its own coverage."
+    },
+    {
+      "id": "units_sold",
+      "label": "Units sold, as transacted",
+      "match": {
+        "all_of": [["unit", "units", "volume", "quantity", "qty"]]
+      },
+      "query": "sql/queries/sales/units_sold.sql",
+      "kpi": ["KPI-04"],
+      "period": {"style": "date_range", "params": ["date_from", "date_to"]},
+      "caveat": "Mixes eaches and cases - this is NOT a physical volume. Ask for eaches if you need real units."
+    },
+    {
+      "id": "top_products",
+      "label": "Best-selling products, outlets and categories",
+      "match": {
+        "all_of": [["top", "best", "biggest", "highest", "leading", "rank", "ranking", "most"],
+                   ["product", "products", "sku", "skus", "outlet", "outlets", "customer", "customers", "category", "categories", "seller", "sellers", "selling"]]
+      },
+      "query": "sql/queries/sales/top_products_and_outlets.sql",
+      "kpi": ["KPI-01"],
+      "period": {"style": "date_range", "params": ["date_from", "date_to"]}
+    },
+    {
+      "id": "finance_reconciliation",
+      "label": "Comparison against the published Finance weekly report",
+      "match": {
+        "any_of": ["reconcil", "reconciliation", "finance report", "weekly report", "published", "board", "legacy", "compare with finance", "double count", "variance"]
+      },
+      "query": "sql/queries/finance/reconciliation_summary.sql",
+      "kpi": ["KPI-08"],
+      "period": null,
+      "caveat": "The published report cannot be reconciled to - it is not derived from the POS feed at all. This query proves that and sizes the gap."
+    },
+    {
+      "id": "order_value_by_source",
+      "label": "Order value by source system, and comparability",
+      "match": {
+        "all_of": [["order", "orders"], ["source", "system", "systems", "sfa", "erp", "partner", "api", "comparable", "comparability"]]
+      },
+      "query": "sql/queries/orders/order_value_by_source_system.sql",
+      "kpi": ["KPI-09", "KPI-10"],
+      "period": {"style": "date_range", "params": ["date_from", "date_to"]}
+    },
+    {
+      "id": "excursion_rate",
+      "label": "Cold chain excursion rate by month",
+      "match": {
+        "any_of": ["excursion", "temperature", "temp breach", "cold chain", "breach", "chilled", "reefer", "above band", "below band"]
+      },
+      "query": "sql/queries/cold_chain/excursion_rate_by_month.sql",
+      "kpi": ["KPI-11", "KPI-12"],
+      "period": null,
+      "caveat": "Reported at READING grain, 7.19%. A vehicle-day rollup gives 75.07% - the grain is most of the answer. 'Trips' are not defined anywhere in the feed."
+    },
+    {
+      "id": "telemetry_completeness",
+      "label": "Telemetry completeness and gateway outages",
+      "match": {
+        "all_of": [["telemetry", "sensor", "gateway", "device", "reading", "readings"],
+                   ["complete", "completeness", "missing", "null", "outage", "dropout", "health"]]
+      },
+      "query": "sql/queries/cold_chain/telemetry_completeness.sql",
+      "kpi": ["KPI-13"],
+      "period": null
+    },
+    {
+      "id": "feed_completeness",
+      "label": "Which days are missing data, in any feed",
+      "match": {
+        "any_of": ["missing day", "missing days", "missing data", "data quality", "completeness", "feed health", "gaps", "gap", "reconcile manifest", "manifest", "is the data ok", "safe to publish"]
+      },
+      "query": "sql/queries/data_quality/feed_completeness.sql",
+      "kpi": ["KPI-14"],
+      "period": null
+    },
+
+    {
+      "id": "blocked_cycle_time",
+      "label": "Dock-to-dispatch cycle time by warehouse",
+      "match": {
+        "any_of": ["cycle time", "dock to dispatch", "dock-to-dispatch", "dwell", "turnaround", "how long in the warehouse", "warehouse time"]
+      },
+      "blocked": {
+        "catalogue": "X-02",
+        "reason": [
+          "The WMS feed contains no stitchable per-item journey. order_number,",
+          "sku_code, batch_id, pallet_id and warehouse_code are each drawn",
+          "independently per scan row, so nothing ties one item's six handling",
+          "stages together.",
+          "",
+          "Verified three ways: stitching RECEIVE->DISPATCH by order_number gives a",
+          "NEGATIVE duration for 50.13% of eligible orders - a coin flip, not a",
+          "data-quality tail. The same ~50% negative rate holds keying by batch_id",
+          "(49.91%) and pallet_id (49.81%), ruling out a wrong join key. And among",
+          "the positive-duration half, median implied cycle time is ~155 days.",
+          "",
+          "To unblock: a handling-unit identifier that persists across scan stages."
+        ],
+        "proof": "sql/queries/limitations/x02_cycle_time_not_stitchable.sql"
+      }
+    },
+    {
+      "id": "blocked_excursion_by_carrier",
+      "label": "Cold chain excursion rate by carrier",
+      "match": {
+        "all_of": [["carrier", "carriers", "transporter", "haulier", "3pl", "bluewheel", "trident", "coldlink", "eastbound", "metro milkrun"]]
+      },
+      "blocked": {
+        "catalogue": "X-01",
+        "reason": [
+          "There is no carrier identifier on the telemetry feed, or on any other",
+          "raw feed. carrier_master.csv is orphaned reference data - carrier_id is",
+          "written once, into that CSV, and referenced nowhere else in the dataset.",
+          "dim_carrier is built and conformed, but joins to nothing.",
+          "",
+          "route_code cannot substitute: it is re-randomised on every individual",
+          "reading. All 340 vehicles see readings against all 260 route codes and",
+          "all 8 warehouses, so it is not an assignment despite what the feed",
+          "contract claims.",
+          "",
+          "The BY MONTH half of this question IS answerable - ask for excursion",
+          "rate by month. To unblock the carrier split: a vehicle-to-carrier",
+          "assignment feed."
+        ],
+        "proof": "sql/queries/limitations/x01_carrier_unlinkable.sql"
+      }
+    },
+    {
+      "id": "blocked_channel_change",
+      "label": "Outlets that changed channel classification",
+      "match": {
+        "all_of": [["change", "changed", "changes", "reclassif", "reclassified", "switch", "switched", "moved"],
+                   ["channel", "classification", "segment", "format"]]
+      },
+      "blocked": {
+        "catalogue": "X-03",
+        "reason": [
+          "The outlet master's versioned attributes are not change history. Six of",
+          "nine attributes - channel, outlet_format, city, route_code,",
+          "credit_limit, credit_terms_days - are independently re-randomised on",
+          "every CDC update, confirmed in the generator.",
+          "",
+          "Answering from dim_outlet.channel would report that the large majority",
+          "of outlets 'changed channel'. That is noise presented as a finding, and",
+          "it is the kind of number that ends up in a board pack. OUT001011 cycles",
+          "GT -> MT -> ECOM -> GT -> MT -> GT -> ECOM and five different cities",
+          "across 12 versions, with no pattern.",
+          "",
+          "Only warehouse_code, gst_number and outlet_name are genuinely stable.",
+          "To unblock: a source that emits change events only on genuine change."
+        ],
+        "proof": "sql/queries/limitations/x03_outlet_channel_is_noise.sql"
+      }
+    },
+    {
+      "id": "blocked_order_net_value",
+      "label": "Order net value, order discount, order tax",
+      "match": {
+        "all_of": [["order", "orders"], ["net value", "net", "discount", "tax", "margin"]]
+      },
+      "blocked": {
+        "catalogue": "X-04",
+        "reason": [
+          "On the sales_order_header feed, discount_amount and tax_amount are",
+          "drawn as free-standing uniforms with no reference to order_value_gross.",
+          "Measured on the built fact: corr(gross, discount) = 0.0020,",
+          "corr(gross, tax) = 0.0027, and the implied tax rate spans 0.04% to",
+          "2552% where a real GST rate would cluster tightly.",
+          "",
+          "Because discount is unbounded relative to gross, 1,743 orders (0.54%)",
+          "compute to a NEGATIVE net value - at a near-identical rate in all three",
+          "source systems, which rules out the freight correction as the cause.",
+          "",
+          "Use order value GROSS instead - ask for order value by source system.",
+          "Note the POS feed is different: there, discount and tax ARE derived from",
+          "the line value, so net sales is sound. Ask for a sales summary."
+        ],
+        "proof": null
+      }
+    },
+    {
+      "id": "blocked_trip_excursion",
+      "label": "Proportion of trips that breached temperature",
+      "match": {
+        "all_of": [["trip", "trips", "journey", "journeys", "shipment", "shipments"],
+                   ["breach", "breached", "excursion", "temperature", "cold chain", "integrity"]]
+      },
+      "blocked": {
+        "catalogue": "X-05",
+        "reason": [
+          "Nothing in the telemetry feed demarcates a trip. There is no trip",
+          "identifier, no ignition or door-cycle boundary that closes a journey,",
+          "and no dispatch event to anchor one. The only genuinely stable identity",
+          "on the feed is device_id -> vehicle_registration (verified 1:1).",
+          "",
+          "Any trip definition would therefore be invented in the pipeline, and",
+          "the choice would drive the headline number: reading grain gives 7.19%,",
+          "a naive vehicle-day rollup gives 75.07%. That is why the fact is left",
+          "at reading grain deliberately.",
+          "",
+          "Ask for excursion rate by month for the defensible version. To unblock:",
+          "a trip or shipment feed, then agree the definition with Operations",
+          "BEFORE publishing - this is the number most likely to be misquoted."
+        ],
+        "proof": null
+      }
+    }
+  ]
+}

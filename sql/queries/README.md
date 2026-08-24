@@ -6,6 +6,19 @@ catalogue entry in its header. That pairing is the traceability requirement:
 a number, its definition, and the SQL that produced it are never more than one
 hop apart.
 
+## Asking a question instead
+
+If you do not know which file you need:
+
+```bash
+python3 scripts/ask.py "gross sales by channel last quarter"
+```
+
+It matches the question to one of these files, shows the SQL, and runs it. The
+vocabulary it understands lives in [`intents.json`](intents.json) — data, not
+code, so adding a recognised question means adding an entry there rather than
+changing the router.
+
 ## Running a query
 
 ```bash

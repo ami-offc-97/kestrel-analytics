@@ -39,11 +39,19 @@ was establishing which columns mean anything at all.
   spine-times-dimension check that actually finds holes inside a healthy feed
   exists only for telemetry gateways. POS needs the same per till/outlet, WMS
   per warehouse, before either could honestly be called monitored.
-- **The "ask-anything" interface.** The CFO asked for it. I judged a thin
-  natural-language layer over a foundation I could not yet fully defend to be
-  the wrong order of work. The query library is the honest version of it today:
-  every number arrives with the SQL that produced it, which was his actual
-  condition.
+- **An LLM writing SQL for the "ask-anything" interface.** I built the
+  interface (`scripts/ask.py`) but deliberately not that way. It routes a
+  plain-English question to a query that already exists in the library, prints
+  the SQL, then runs it — so every number it returns is one a human already
+  defined and owns. A model generating fresh SQL would answer more questions
+  and would sometimes be confidently wrong: on this schema it would happily
+  join `dim_outlet.channel` and report a channel split that looks entirely
+  plausible and is noise. Where six of nine outlet attributes are meaningless,
+  "sounds right" is the failure mode to design against, and the whole
+  submission argues for not publishing numbers we cannot defend. The cost is a
+  fixed vocabulary, held as data in `sql/queries/intents.json`; when the router
+  does not recognise a question it says so and lists what it knows rather than
+  guessing.
 - **Materialised reporting tables.** Views are always in sync. At 4m rows
   DuckDB joins are not the bottleneck; `CREATE VIEW` → `CREATE TABLE AS` is the
   whole migration if that changes.
@@ -126,8 +134,13 @@ was establishing which columns mean anything at all.
    to trust.
 4. **Resolve the two open definitional questions** with Divya (excursion band)
    and Anand (eaches coverage), then lock the catalogue.
-5. **The ask-anything layer**, constrained to the catalogue's metrics and
-   always showing its SQL.
+5. **Upgrade ask.py to generate SQL**, with the guardrails that would make it
+   trustworthy: generation restricted to `rpt_sales_flat` and the marts, the
+   catalogue's definitions and known-noise columns supplied as context, a
+   refusal path for the five documented unbuildable metrics, and the generated
+   SQL shown and logged every time. The routing layer already built is the
+   thing that makes this safe to attempt — it defines what "correct" looks
+   like for each question, so a generated answer can be checked against it.
 
 ## What breaks first in production, and at what volume
 

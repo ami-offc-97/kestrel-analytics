@@ -6,6 +6,7 @@ distributor, built from four source systems that do not agree with each other.
 - **[`DECISIONS.md`](DECISIONS.md)** — what was built, what was not, and why. Read this first.
 - **[`docs/kpi_catalogue.md`](docs/kpi_catalogue.md)** — every metric, defined. The artefact the CFO asked for.
 - **[`sql/queries/`](sql/queries/README.md)** — the runnable SQL behind every metric.
+- **`python3 scripts/ask.py "your question"`** — ask in plain English; it shows the SQL.
 - **[`docs/findings.md`](docs/findings.md)** — the data-quality investigation in full.
 
 ---
@@ -25,8 +26,8 @@ python3 generate_dataset.py --scale 1 --out data
 # 3. Build the warehouse
 python3 scripts/run_pipeline.py
 
-# 4. Ask it something
-python3 scripts/run_query.py sql/queries/sales/gross_sales_by_channel.sql
+# 4. Ask it something, in plain English
+python3 scripts/ask.py "gross sales by channel last quarter"
 ```
 
 Step 2 takes a few minutes and writes ~1.5 GB. Step 3 builds 20 models in
@@ -71,7 +72,36 @@ No SQL changes required — data paths are injected as a DuckDB variable, not
 hardcoded in the models. See `DECISIONS.md` for what we expect to break first
 and at what volume.
 
-### Query it
+### Ask it a question
+
+```bash
+python3 scripts/ask.py "gross sales by channel last quarter"
+python3 scripts/ask.py "units sold in eaches last month"
+python3 scripts/ask.py                                   # interactive
+python3 scripts/ask.py "..." --dry-run                   # show the plan and SQL only
+```
+
+Prints the metric it matched, its catalogue ID, the period it resolved, the
+**SQL it is about to run**, and a copy-pasteable command to reproduce the
+result — then the answer. This is the CFO's requirement: *"if it cannot show me
+the query it ran, I am not interested."*
+
+It routes to queries that already exist; it does not write SQL, so it cannot
+return a number nobody defined. Two behaviours worth knowing:
+
+- **Questions that sound answerable but are not** — cycle time by warehouse,
+  excursion rate by carrier, outlet channel changes — return the documented
+  reason and a runnable proof instead of a figure.
+- **Relative dates anchor to the latest date in the data**, not today's clock.
+  The shipped dataset ends 2026-06-30, so "last month" means June 2026.
+  Anchoring to the wall clock would return nothing and look like a broken
+  pipeline rather than a stale feed.
+
+The vocabulary it understands is data, not code:
+[`sql/queries/intents.json`](sql/queries/intents.json). Adding a question means
+adding an entry there.
+
+### Query it directly
 
 ```bash
 python3 scripts/run_query.py --list                    # what's available
@@ -98,13 +128,15 @@ con.sql("SELECT * FROM rpt_sales_flat LIMIT 5").show()
 ```
 ├── scripts/
 │   ├── run_pipeline.py            Build the warehouse. The documented entry point
-│   └── run_query.py               Run a query from the library, with parameters
+│   ├── run_query.py               Run a query from the library, with parameters
+│   └── ask.py                     Plain-English question -> the SQL, then the answer
 ├── sql/
 │   ├── staging/                   6 models — one per raw feed, cleaned and deduped
 │   ├── marts/                     9 models — star schema, 4 facts + 5 dimensions
 │   ├── dq/                        3 models — completeness at three grains
 │   ├── reporting/                 2 models — flat sales view, Finance reconciliation
 │   └── queries/                   The KPI query library, organised by domain
+│       └── intents.json           What ask.py understands. Data, not code
 ├── docs/
 │   ├── kpi_catalogue.md           Every metric: definition, grain, owner, limitations
 │   ├── findings.md                The data-quality investigation, feed by feed

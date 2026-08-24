@@ -6,3 +6,9 @@ __pycache__/
 .DS_Store
 .idea/
 staging_test.py
+
+# Ad-hoc exploration scratchpads (same category as staging_test.py).
+# Kept locally, not part of the submission.
+check_manifest.py
+check_reefer.py
+peek.py

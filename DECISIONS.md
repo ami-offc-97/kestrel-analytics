@@ -78,11 +78,18 @@
   insert, sharing its timestamp). The (op_ts, seq) ordering - built as defensive
   practice, not because this specific tie was anticipated - correctly resolves it
   too, since deletes always carry a +10,000,000 seq offset. Further investigation
-  surfaced that delete tombstones are sampled independently of an order's own
-  scheduled updates, so a deleted order can have genuine "U" rows recorded
-  chronologically AFTER its "D" row (verified: order SO-00286919 has updates at
-  06:42 and 12:28 following a delete at 00:06). This affects how "is this order
-  currently deleted" must be defined in fct_orders - see decision logged there.
+  established the shape of this precisely: the tombstone copies the INSERT row
+  wholesale (op_ts included) while an order's updates land 6h+ later, so a "D"
+  row is never chronologically last - ALL 2,880 deleted orders have a genuine
+  "U" row after their "D" (verified 2,880/2,880; this is universal, not the
+  occasional case an earlier revision of this note described). Also corrected
+  against the data: the delete row is the only place this feed has extract lag
+  (2,877 of 2,880 "D" rows carry extract_date = order_date + 2..30 days, vs.
+  exactly 0 of the 960,427 I/U rows), so extract_date is not a safe proxy for
+  event time here. Both findings were back-ported into
+  `stg_sales_order_header.sql`, whose header had wrongly claimed this feed has
+  neither ties nor extract lag. This determines how "is this order currently
+  deleted" must be defined in fct_orders - see decision logged there.
   status field is hardcoded "ACTIVE" on every outlet/product record including
   deletes - __op = 'D' is the only reliable deletion signal, not status.
   Several fields re-randomize independently on every version regardless of real
@@ -212,3 +219,56 @@
   `fct_warehouse_cycle_time` is still built at `order_number` grain (6 stage
   timestamps pivoted, `cycle_time_seconds`/`is_cycle_time_plausible`
   exposed) for transparency and diagnostic use.
+
+- **fct_orders: `order_value_net` and `order_value_incl_tax` are arithmetic
+  only, NOT KPI-safe - the order feed's discount and tax bear no relationship
+  to its gross, unlike the POS feed's**: `discount_amount` and `tax_amount`
+  on `sales_order_header` are drawn as free-standing uniforms
+  (`rng.uniform(0, 9000)` and `rng.uniform(200, 52000)`) with no reference to
+  `order_value_gross` (`rng.uniform(2000, 480000)`). Verified on the built
+  fact rather than inferred from the generator alone: `corr(gross_corrected,
+  discount) = 0.0020`, `corr(gross_corrected, tax) = 0.0027`, and the implied
+  tax rate spans 0.04% to 2552% (median 10.83%) where a real 12% GST rate
+  would cluster tightly. Because discount is unbounded relative to gross,
+  1,743 orders (0.54%) compute to a NEGATIVE net - and the rate is
+  near-identical across all three source systems (SFA_MOBILE 0.556%, ERP_WEB
+  0.540%, PARTNER_API 0.541%), which rules out the L14 freight correction as
+  the cause and confirms it as a property of the source. Design decision:
+  the columns are retained and left unclamped/unfiltered, with an explicit
+  CAUTION in the mart header - the same treatment given to telemetry's
+  `route_code`/`warehouse_code`, and for the same reason (removing them
+  would hide the finding rather than record it). `order_value_gross_corrected`
+  is the order-value measure the KPI catalogue will use. Worth noting the
+  asymmetry explicitly, because the instinct is to generalise: the POS feed
+  DERIVES its discount and tax from the line value
+  (`up*qty*choice([0,0,0,.05,.10])` and `up*qty*0.12`), so
+  `fct_sales.net_sales_amount` and `sales_amount_incl_tax` genuinely are
+  meaningful - verified 0 negative net lines across all 4,000,000 rows. The
+  caution applies to the order feed only.
+
+- **fct_orders: "ever deleted" is not a refinement here, it is the entire
+  result**: because no "D" row is ever chronologically last on this feed (see
+  the CDC bullet above), a "latest op_type = D" deletion test would flag ZERO
+  of the 320,000 orders as deleted, against a true count of 2,880. The
+  `MAX(is_deleted) OVER (PARTITION BY order_number)` rule recovers all 2,880
+  with 0 missed. The corollary is that the canonical-version tie-break that
+  pushes tombstones last is a verified NO-OP on this dataset - canonical and
+  purely-chronological ranking agree on all 320,000 orders. It is kept as
+  defence against a real source where a tombstone IS the final row, and
+  labelled as such in the mart header rather than left to imply it is doing
+  work. Also fixed while verifying this: the tie-break previously depended on
+  DuckDB resolving a bare `is_deleted` to the staging table's row-level column
+  in preference to a same-named window alias in the same SELECT. It does
+  (tested on a synthetic case where the tombstone IS last), so behaviour was
+  correct, but the shadowing was removed in favour of an explicit
+  `op_type = 'D'` test and an `is_ever_deleted` alias. The rewrite was
+  confirmed byte-identical to the previous build (0 rows differing in either
+  direction) before the old version was replaced.
+
+- **Known documentation debt**: this file is well past the brief's "one page
+  maximum". What it currently is, is an investigation log - valuable, but not
+  the artefact asked for. Before submission it should be split: a genuine
+  one-page DECISIONS.md (what was built / deliberately not built / assumed /
+  next with two more weeks / what breaks first and at what volume) with the
+  per-feed forensics moved to a `docs/findings.md` it links to.
+

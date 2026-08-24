@@ -3,11 +3,37 @@
 -- Source: data/raw/erp_cdc/sales_order_header/**/*.parquet
 -- Grain: one row per CHANGE EVENT per order (full history retained).
 --
--- Unlike outlet_master/product_master, this table does NOT have DEFECT L12
--- (out-of-order extract) or L13 (timestamp ties) - extract_date is set
--- directly from order_date with no lag, and __seq is strictly increasing
--- per order by construction. Ordering by (op_ts, seq) is kept anyway as
--- defensive practice, but no genuine ties are expected here.
+-- This table does not carry the DOCUMENTED L12/L13 defects (those are
+-- injected only into outlet_master/product_master - confirmed in the
+-- generator). It does, however, exhibit its own undocumented equivalents,
+-- so ordering by (op_ts, seq) is load-bearing here, not merely defensive:
+--
+--   * TIMESTAMP TIES DO EXIST. The delete tombstone is a byte copy of the
+--     order's insert row, __op_ts included (generator: dels =
+--     df[__op=='I'].sample(...)), so every deleted order has an I/D pair
+--     sharing one timestamp. Verified: 2,880 orders affected. The tie is
+--     resolved by __seq, since deletes carry a +10,000,000 offset.
+--     (An earlier revision of this header claimed no ties were expected.
+--     That was wrong; corrected against the data.)
+--
+--   * EXTRACT LAG DOES EXIST, on delete rows only. I and U rows have
+--     extract_date = order_date exactly, but tombstones are stamped
+--     order_date + 2..30 days. Verified: 2,877 of 2,880 D rows have
+--     extract_date <> order_date. Harmless to the dedup below (which
+--     partitions by (order_number, __seq)), but it means extract_date
+--     cannot be used as a proxy for event time on this feed.
+--
+-- __seq IS strictly increasing per order by construction (insert < its
+-- updates < its tombstone), so (op_ts, seq) fully orders every history.
+--
+-- Because the tombstone copies the INSERT's timestamp while updates land
+-- 6h+ later, a D row is never chronologically last: all 2,880 deleted
+-- orders have a genuine U row after their D. Downstream deletion tests
+-- must therefore be "ever deleted", never "latest op_type" - see fct_orders.
+--
+-- The rn dedup below is a verified no-op on this feed (raw 963,307 =
+-- staged 963,307); it is retained as a guard, matching the other CDC
+-- staging tables, not because duplicates were found.
 --
 -- IMPORTANT: order_value_gross, discount_amount, tax_amount, line_count are
 -- independently re-randomized on EVERY version (insert and update alike) -

@@ -181,12 +181,13 @@ def run(args: argparse.Namespace) -> int:
 
     print(f"OK - {len(models)} models built in {total:.1f}s")
     print("=" * 74)
+    db_flag = "" if args.db == "kestrel.duckdb" else f" --db {args.db}"
     print(
         "\nNext:\n"
-        f"  duckdb {args.db}\n"
-        "  or run a query from the library, e.g.\n"
-        f"  duckdb {args.db} < sql/queries/sales/gross_sales_by_channel.sql\n"
+        f"  python3 scripts/run_query.py --list{db_flag}\n"
+        f"  python3 scripts/run_query.py sql/queries/sales/gross_sales_by_channel.sql{db_flag}\n"
         "\nMetric definitions: docs/kpi_catalogue.md"
+        "\nWhat was built and why: DECISIONS.md"
     )
     return 0
 
